@@ -1,0 +1,481 @@
+---
+title: "LTER Time Series Complete Dataset R Analysis"
+author: "Cat Luria"
+date: "July 13, 2015"
+output:
+  pdf_document:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+
+---
+\newpage
+```{r, echo=FALSE}
+knitr::opts_chunk$set(cache=TRUE)
+```
+---
+
+
+
+
+#Getting started
+
+First, load all the necessary packages.
+
+```{r libraries, echo=FALSE, hide=TRUE}
+#libraries
+library(data.table)
+library(BiodiversityR)
+library(vegan)
+library(ggplot2)
+library(wesanderson)
+library(scales)
+library(reshape2)
+library(RColorBrewer)
+library(gdata)
+```
+
+ 
+
+```{r get_data, echo=FALSE}
+
+setwd("/Users/cmluria/Documents/Documents/Thesis Chapters/PAL LTER 16S Time Series/complete_16S_dataset")
+
+otutable <- fread('cdout_LTER_bac/otu_table_mc2_LTER_even8467_bac_from_biom.txt', skip=1)
+
+meta <- fread('../metadata_2015July13.txt')
+
+
+idx_meta <- order(meta$MBL_Library_ID, decreasing=FALSE)
+meta_sorted <- meta[idx_meta]
+meta_sorted_NA <- unknownToNA(meta_sorted, "ND")
+
+```
+
+```{r remove_chloroplasts, echo=FALSE}
+#creating a table that has chloroplasts removed
+#first create index of all rows with "organelle"
+#then invert, to get index of rows without "organelle"
+#apply index to original table
+chlor <- grep('Chloroplast', x=otutable$taxonomy)
+#length(chlor)
+idx_chlor <- grep('Chloroplast',x = otutable$taxonomy, invert=TRUE)
+otutable_bac <- otutable[i=idx_chlor]
+
+```
+
+Finally, I removed any OTUs identified as chloroplasts. This removed `r length(chlor)` OTUs from the OTU table.
+
+#Alpha Diversity
+
+##Getting the table set up correctly
+```{r manip_otus_and_map, echo=FALSE}
+
+#convert the otu table to a data frame
+otutable_bac <- as.data.frame(otutable_bac)
+#grab the columns with data
+otutable_bac_samples <- otutable_bac[,(2:52)]
+#transpose
+otutable_bac_samples_t <- t(otutable_bac_samples)
+#use column 1 from original table as column names in new table
+colnames(otutable_bac_samples_t) <- otutable_bac[,1]
+
+otutable_bac_samples_t_sorted <- as.data.frame(otutable_bac_samples_t[order(row.names(otutable_bac_samples_t)), ])
+#otutable_bac_samples_t <- as.data.frame(new_otutable_bac_samples_t)
+```
+
+##Richness
+
+Calculate diversity indices using BiodiversityR package. For this package, sites are rows and species are columns. Remember to exclude metadata columns.
+```{r calculate_richness}
+
+#calculate richness by site
+richness <- diversityresult(otutable_bac_samples_t_sorted, 
+                              index='richness', method='s')
+#add metadata to richness
+diversitytable <- cbind(meta_sorted, richness)
+```
+
+```{r richness_plot, fig.cap="Observed OTUs per each individual library."}
+#Turn your 'treatment' column into a character vector
+#diversitytable$Date <- as.character(diversitytable$Date)
+#Then turn it back into an ordered factor
+diversitytable$Date <- as.Date(diversitytable$Date, "%m/%d/%y")
+
+#plotting richness for each sample
+# p <-ggplot(diversitytable, aes(x=Date, y=richness)) +
+#   geom_bar(stat="identity") +
+#   theme_bw() +
+#   theme(text = element_text(size=10),
+#         axis.text.x = element_text(angle=90, vjust=1))
+# p + facet_grid(.~Season, scales="free")
+
+dummy_diversitytable <- 
+  read.table("dummy_diversitytable_2015aug25.txt", header=T, sep="\t")
+dummy_diversitytable$Date <- as.Date(dummy_diversitytable$Date, "%m/%d/%y")
+
+dummydiv <- rbind(diversitytable, dummy_diversitytable)
+
+season_labeller <- function(var, value){
+  value <- as.character(value)
+  if (var=="Season") { 
+    value[value=="PAL0910"] <- "2009-2010"
+    value[value=="PAL1011"]   <- "2010-2011"
+    value[value=="PAL1112"]   <- "2011-2012"
+    value[value=="PAL1213"]   <- "2012-2013"
+  }
+  return(value)
+}
+
+dummyp <-ggplot(dummydiv, aes(x=Date, y=richness)) +
+  geom_bar(stat="identity", width=3, color="#0072B2") +
+  ylab("richness (# of OTUs)") +
+  xlab("") +
+  scale_x_date(breaks = date_breaks("months"),
+   labels = date_format("%b")) +
+  theme_bw() +
+  theme(text = element_text(size=10),
+        axis.text.x = element_text(vjust=1))
+
+dummyp + facet_grid(.~Season, scales="free", labeller=season_labeller)
+
+
+```
+
+### Compare across seasons
+
+Surprisingly, ANOVA indicates that richness varies significantly between seasons. PAL1011 has signicantly higher richness than PAL1112 and PAL1213.
+
+```{r anova_richness_season}
+aov.richness.season= aov(richness~Season,data=diversitytable)
+summary(aov.richness.season)
+
+tuk<- TukeyHSD(aov.richness.season)
+tuk
+```
+
+```{r aggregate_richness_by_season}
+#write a function to calculate SD
+myFunc = function(x) {
+  result = c(mean(x) - sd(x), mean(x) + sd(x))
+  names(result) = c("ymin", "ymax")
+  result
+}
+
+#aggregate by month and apply SD function
+aggregate(diversitytable$richness, by = list(diversitytable$Season), FUN = myFunc)
+
+```
+
+```{r plot_richness_by_season, echo=FALSE, fig.cap="Mean richness (observed OTUs) for each PAL LTER season. Mean is indicated by diamond."}
+# ggplot(data = diversitytable,
+#        aes(Season, richness)) +
+#       stat_summary(fun.y = mean, geom = "point", size = 3) + 
+#       stat_summary(fun.data = "myFunc", geom = "errorbar", width = 0.2) +
+#       theme_bw() +
+#       scale_y_continuous(limit = c(0, 1500))
+
+ggplot(data = diversitytable,
+       aes(Season, richness)) +
+      geom_boxplot() +
+      stat_summary(fun.y=mean, geom="point", shape=5, size=4) +
+      theme_bw()
+
+```
+
+### Compare across months
+
+Richness does not vary between months.
+```{r anova_richness_month, echo=FALSE}
+aov.richness.month= aov(richness~Month,data=diversitytable)
+summary(aov.richness.month)
+
+#F statistics = Variation among sample means / Variation within groups
+
+# tuk<- TukeyHSD(aov.richness.month)
+# tuk
+```
+
+```{r aggregate_richness_by_month, echo=FALSE}
+#write a function to calculate SD
+myFunc = function(x) {
+  result = c(mean(x) - sd(x), mean(x) + sd(x))
+  names(result) = c("ymin", "ymax")
+  result
+}
+
+#aggregate by month and apply SD function
+aggregate(diversitytable$richness, by = list(diversitytable$Month), FUN = myFunc)
+
+#order factors so they appear in plot in correct order
+diversitytable$Month <- as.factor(diversitytable$Month)
+diversitytable$Month = ordered(diversitytable$Month,
+                               levels=c("Oct", "Nov", "Dec", "Jan", "Feb", "Mar"))
+
+```
+
+```{r plot_richness_by_month, echo=FALSE, fig.cap="Mean richness (observed OTUs) for each month grouped across all seasons. Error bars are standard deviation."}
+# ggplot(data = diversitytable,
+#        aes(Month, richness)) +
+#       stat_summary(fun.y = mean, geom = "point", size = 3) + 
+#       stat_summary(fun.data = "myFunc", geom = "errorbar", width = 0.2) +
+#       theme_bw() +
+#       scale_y_continuous(limit = c(0, 1500))
+
+ggplot(data = diversitytable,
+       aes(Month, richness)) +
+      geom_boxplot() +
+      stat_summary(fun.y=mean, geom="point", shape=5, size=4) +
+      theme_bw()
+
+```
+
+```{r lm_richness_daylength, fig.cap="Richness (observed OTUs) versus day length (hours between sunrise and sunset) during summer months at Palmer Station."}
+lm_richness_daylength <- lm(richness~DayLength, data=diversitytable)
+summary(lm_richness_daylength)
+plot(richness~DayLength, data=diversitytable)
+abline(lm_richness_daylength, col="red")
+```
+
+Richness declines with increasing daylength but the relationship is weak (p=0.08). 
+
+#NMDS
+
+Run NMDS using vegan package. Then convert to resulting MDS coordinates to a data frame. Finally cbind map file to mds coordinate table.
+
+##Running NMDS with all samples
+
+```{r NMDS_all}
+
+otutable_bac.mds <- metaMDS(otutable_bac_samples_t_sorted, 
+                                    distance="bray", k=2, autotransform=FALSE)
+#convert resulting MDS coordinates to a data frame
+otutable_bac.mds.points <- as.data.frame(otutable_bac.mds$points)
+#add site codes and other factors to data frame
+coded.otutable_bac.mds <- cbind(otutable_bac.mds.points, meta_sorted)
+
+coded.otutable_bac.mds$Month <- as.factor(coded.otutable_bac.mds$Month)
+coded.otutable_bac.mds$Month = ordered(coded.otutable_bac.mds$Month,
+                               levels=c("Oct", "Nov", "Dec", "Jan", "Feb", "Mar"))
+```
+
+```{r plot_NMDS_all, echo=FALSE, fig.cap="NMDS with all samples. Sample shape is coded by LTER season. Sample color is coded by month."}
+
+ggplot(coded.otutable_bac.mds, aes(x=MDS1, y=MDS2, color=Month)) +
+  geom_point(, size=4) +
+  scale_color_hue() +
+  scale_shape_manual(values=c(15,17,19,18)) +
+  stat_ellipse(linetype=2) +
+  theme_bw()
+```
+
+```{r plot_NMDS_daylength, echo=FALSE, fig.cap="NMDS with all samples, results color-coded according to day length, i.e. hours between official sunrise and official sunset."}
+ggplot(coded.otutable_bac.mds, aes(x=MDS1, y=MDS2, color=DayLength, shape=Season)) +
+  geom_point(, size=6) +
+  scale_color_gradient(low=wes_palettes$Zissou[1],
+                       high=wes_palettes$Zissou[3]) +
+  theme_bw()
+```
+
+```{r NMDS_all_autotransform, echo=FALSE, fig.cap="NMDS with all samples after Wisconsin double transformation."}
+
+otutable_bac.mds <- metaMDS(otutable_bac_samples_t_sorted, 
+                                    distance="bray", k=2, autotransform=TRUE)
+#convert resulting MDS coordinates to a data frame
+otutable_bac.mds.points <- as.data.frame(otutable_bac.mds$points)
+#add site codes and other factors to data frame
+coded.otutable_bac.mds <- cbind(otutable_bac.mds.points, meta_sorted)
+
+coded.otutable_bac.mds$Month <- as.factor(coded.otutable_bac.mds$Month)
+coded.otutable_bac.mds$Month = ordered(coded.otutable_bac.mds$Month,
+                               levels=c("Oct", "Nov", "Dec", "Jan", "Feb", "Mar"))
+
+ggplot(coded.otutable_bac.mds, aes(x=MDS1, y=MDS2, color=Season)) +
+  geom_point(, size=6) +
+  scale_color_hue() +
+  scale_shape_manual(values=c(15,17,19,18)) +
+  stat_ellipse()+
+  theme_bw()
+
+```
+
+```{r NMDS_all_no_PAL0910, echo=FALSE, fig.cap="NMDS without PAL0910."}
+
+otutable_bac.mds <- metaMDS(otutable_bac_samples_t_sorted[-(1:11),], 
+                                    distance="bray", k=2, autotransform=FALSE)
+#convert resulting MDS coordinates to a data frame
+otutable_bac.mds.points <- as.data.frame(otutable_bac.mds$points)
+#add site codes and other factors to data frame
+coded.otutable_bac.mds <- cbind(otutable_bac.mds.points, meta_sorted[-(1:11),])
+
+coded.otutable_bac.mds$Month <- as.factor(coded.otutable_bac.mds$Month)
+coded.otutable_bac.mds$Month = ordered(coded.otutable_bac.mds$Month,
+                               levels=c("Oct", "Nov", "Dec", "Jan", "Feb", "Mar"))
+
+ggplot(coded.otutable_bac.mds, aes(x=MDS1, y=MDS2, color=Month)) +
+  geom_point(, size=6) +
+  scale_color_hue() +
+  scale_shape_manual(values=c(15,17,19,18)) +
+  #stat_ellipse()+
+  theme_bw()
+
+```
+
+```{r NMDS_all_no_PAL0910_noPAL1011, echo=FALSE, fig.cap="NMDS without PAL0910 or PAL1011."}
+
+otutable_bac.mds <- metaMDS(otutable_bac_samples_t_sorted[-(1:21),], 
+                                    distance="bray", k=2, autotransform=FALSE)
+#convert resulting MDS coordinates to a data frame
+otutable_bac.mds.points <- as.data.frame(otutable_bac.mds$points)
+#add site codes and other factors to data frame
+coded.otutable_bac.mds <- cbind(otutable_bac.mds.points, meta_sorted[-(1:21),])
+
+coded.otutable_bac.mds$Month <- as.factor(coded.otutable_bac.mds$Month)
+coded.otutable_bac.mds$Month = ordered(coded.otutable_bac.mds$Month,
+                               levels=c("Oct", "Nov", "Dec", "Jan", "Feb", "Mar"))
+
+ggplot(coded.otutable_bac.mds, aes(x=MDS1, y=MDS2, color=Month, shape=Season)) +
+  geom_point(, size=6) +
+  scale_color_hue() +
+  scale_shape_manual(values=c(15,17,19,18)) +
+  #stat_ellipse(linetype=2) +
+  theme_bw()
+
+```
+
+
+```{r plot_NMDS_daylength_PAL1112_PAL1213, echo=FALSE, fig.cap="NMDS results without PAL0910 or PAL1011, samples color-coded according to day length, i.e. hours between official sunrise and official sunset."}
+
+otutable_bac.mds <- metaMDS(otutable_bac_samples_t_sorted[-(1:21),], 
+                                    distance="bray", k=2, autotransform=FALSE)
+#convert resulting MDS coordinates to a data frame
+otutable_bac.mds.points <- as.data.frame(otutable_bac.mds$points)
+#add site codes and other factors to data frame
+coded.otutable_bac.mds <- cbind(otutable_bac.mds.points, meta_sorted[-(1:21),])
+
+ggplot(coded.otutable_bac.mds, aes(x=MDS1, y=MDS2, color=DayLength, shape=Season)) +
+  geom_point(,size=5) +
+  scale_shape_manual(values=c(20,17)) +
+  scale_color_gradient(low=wes_palettes$Zissou[1],
+                       high=wes_palettes$Zissou[3]) +
+  stat_ellipse(col=wes_palettes$Zissou[1], linetype=2) +
+  theme_bw()
+```
+
+```{r NMDS_only_PAL1213, echo=FALSE, eval=FALSE, fig.cap="NMDS with only PAL1213 season."}
+
+otutable_bac.mds <- metaMDS(otutable_bac_samples_t_sorted[(33:51),], 
+                                    distance="bray", k=2, autotransform=FALSE)
+#convert resulting MDS coordinates to a data frame
+otutable_bac.mds.points <- as.data.frame(otutable_bac.mds$points)
+#add site codes and other factors to data frame
+coded.otutable_bac.mds <- cbind(otutable_bac.mds.points, meta_sorted[(33:51),])
+
+coded.otutable_bac.mds$Month <- as.factor(coded.otutable_bac.mds$Month)
+coded.otutable_bac.mds$Month = ordered(coded.otutable_bac.mds$Month,
+                               levels=c("Oct", "Nov", "Dec", "Jan", "Feb", "Mar"))
+
+ggplot(coded.otutable_bac.mds, aes(x=MDS1, y=MDS2, color=Month, shape=Season)) +
+  geom_point(, size=4) +
+  scale_color_hue() +
+  scale_shape_manual(values=c(15,17,19,18)) +
+  theme_bw()
+
+```
+
+##Add ellipses
+
+```{r NMDS_w_ellipses, echo=FALSE, fig.cap="NMDS without PAL0910. Ellipses represent 95% confidence intervals."}
+#Get MDS stats
+otutable_bac.mds <- metaMDS(otutable_bac_samples_t_sorted[-(1:11),], 
+                            distance="bray", k=2, autotransform=FALSE)
+
+#Make a new data frame, and put Season and Month there
+# to be useful for coloring, and shape of points
+NMDS=data.frame(x=otutable_bac.mds$point[,1],
+                y=otutable_bac.mds$point[,2],
+                Season=as.factor(meta_sorted$Season[-(1:11)]),
+                Month=as.factor(meta_sorted$Month[-(1:11)]))
+
+#Get spread of points based on season
+plot.new()
+ord <- ordiellipse(otutable_bac.mds, meta_sorted$Season[-(1:11)],
+                 display = "sites", kind ="sd", conf = 0.95, label = T)
+
+
+#Reference: http://stackoverflow.com/questions/13794419/plotting-ordiellipse-function-from-vegan-package-onto-nmds-plot-created-in-ggplo
+#Data frame df_ell contains values to show ellipses. 
+#It is calculated with function veganCovEllipse which is hidden in vegan package. 
+#This function is applied to each level of NMDS (group) 
+#and it uses also function cov.wt to calculate covariance matrix.
+
+veganCovEllipse<-function (cov, center = c(0, 0), scale = 1, npoints = 100) 
+{
+  theta <- (0:npoints) * 2 * pi/npoints
+  Circle <- cbind(cos(theta), sin(theta))
+  t(center + scale * t(Circle %*% chol(cov)))
+}
+
+#Generate ellipse points
+df_ell <- data.frame()
+for(g in levels(NMDS$Season)){
+  if(g!="" && (g %in% names(ord))){
+    
+    df_ell <- rbind(df_ell, cbind(as.data.frame(with(NMDS[NMDS$Season==g,],
+                                                     veganCovEllipse(ord[[g]]$cov,ord[[g]]$center,ord[[g]]$scale)))
+                                  ,Season=g))
+  }
+}
+
+head(df_ell)
+
+#Generate mean values from NMDS plot grouped on Countries
+NMDS.mean=aggregate(NMDS[,1:2],list(group=NMDS$Season),mean)
+NMDS.mean
+
+#plot
+
+ggplot(data=NMDS,aes(x,y,colour=Season)) +
+  annotate("text",x=NMDS.mean$x,y=NMDS.mean$y,label=NMDS.mean$group,size=4) +
+  geom_path(data=df_ell, aes(x=NMDS1, y=NMDS2), size=1, linetype=2) +
+  geom_point(aes(shape=Season)) +
+  theme_bw() 
+```
+
+
+#Starting to Incorporate Ancillary Data
+
+##Data collected
+The following metadata has been collected so far. The remaining data are not yet on Datazoo. "X" indicates that the data has been compiled. "ND" indicates that the data does not exist.
+
+
+```{r datasofar_table, echo=FALSE}
+datasofar <- read.csv2("/Users/cmluria/Documents/Documents/Thesis Chapters/PAL LTER 16S Time Series/environmental data/datasofar.txt", sep="\t", header=T)
+knitr::kable(datasofar)
+```
+
+##envfit
+
+```{r envfit}
+
+#===not working===
+# otutable_bac.mds <- metaMDS(otutable_bac_samples_t[-(1:3),], 
+#                             distance="bray", k=2, autotransform=FALSE)
+#  
+# meta_sorted_NA <- as.data.frame(meta_sorted_NA)
+# ef <- envfit(otutable_bac.mds, meta_sorted[, c(15:32)], permu = 999)
+#  
+# meta_sorted_NA_num <- meta_sorted_NA[,15:32]
+# meta_sorted_NA_num <- meta_sorted_NA_num[,-(3:5)]
+# meta_sorted_NA_num <- meta_sorted_NA_num[,-(6:8)]
+# meta_sorted_NA_num <- as.data.frame(meta_sorted_NA_num, stringsAsFactors=FALSE)
+# 
+# ef <- envfit(otutable_bac.mds, meta_sorted_NA_num, na.rm=TRUE)
+# vf <- vectorfit(otutable_bac.mds, meta_sorted_NA, na.rm=TRUE)
+#  
+# plot(otutable_bac.mds, display = "sites")
+# plot(ef, p.max = 0.1)
+```
+
+
+
