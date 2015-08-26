@@ -239,6 +239,15 @@ abline(lm_richness_daylength, col="red")
 
 Richness declines with increasing daylength but the relationship is weak (p=0.08). 
 
+```{r lm_richness_BP, fig.cap="Richness (observed OTUs) versus bacterial production during summer months at Palmer Station."}
+lm_richness_BP <- lm(richness~Leucine, data=diversitytable)
+summary(lm_richness_BP)
+plot(richness~Leucine, data=diversitytable)
+abline(lm_richness_BP, col="red")
+```
+
+Looks like richness~Leucine may be a non-linear relationship.
+
 #NMDS
 
 Run NMDS using vegan package. Then convert to resulting MDS coordinates to a data frame. Finally cbind map file to mds coordinate table.
@@ -259,76 +268,52 @@ coded.otutable_bac.mds$Month = ordered(coded.otutable_bac.mds$Month,
                                levels=c("Oct", "Nov", "Dec", "Jan", "Feb", "Mar"))
 ```
 
-```{r plot_NMDS_all, echo=FALSE, fig.cap="NMDS with all samples. Sample shape is coded by LTER season. Sample color is coded by month."}
+### According to month
 
-ggplot(coded.otutable_bac.mds, aes(x=MDS1, y=MDS2, color=Month)) +
+```{r plot_NMDS_all_month, echo=FALSE, fig.cap="NMDS with all samples. Sample shape is coded by LTER season. Sample color is coded by month."}
+
+ggplot(coded.otutable_bac.mds, aes(x=MDS1, y=MDS2, color=Month, shape=Season)) +
   geom_point(, size=4) +
   scale_color_hue() +
   scale_shape_manual(values=c(15,17,19,18)) +
-  stat_ellipse(linetype=2) +
   theme_bw()
 ```
 
-```{r plot_NMDS_daylength, echo=FALSE, fig.cap="NMDS with all samples, results color-coded according to day length, i.e. hours between official sunrise and official sunset."}
+### According to depth
+
+```{r plot_NMDS_all_depth, echo=FALSE, fig.cap="NMDS with all samples. Sample shape is coded by LTER season. Sample color is coded by month."}
+
+coded.otutable_bac.mds$Depth <- as.factor(coded.otutable_bac.mds$Depth)
+
+ggplot(coded.otutable_bac.mds, aes(x=MDS1, y=MDS2, color=Month, shape=Depth)) +
+  geom_point(, size=4) +
+  scale_color_hue() +
+  scale_shape_manual(values=c(1,19)) +
+  theme_bw()
+```
+
+### According to daylength
+
+```{r plot_NMDS_all_daylength, echo=FALSE, fig.cap="NMDS with all samples, results color-coded according to day length, i.e. hours between official sunrise and official sunset."}
+
 ggplot(coded.otutable_bac.mds, aes(x=MDS1, y=MDS2, color=DayLength, shape=Season)) +
-  geom_point(, size=6) +
+  geom_point(, size=5) +
+  scale_shape_manual(values=c(15,17,19,18)) +
   scale_color_gradient(low=wes_palettes$Zissou[1],
                        high=wes_palettes$Zissou[3]) +
   theme_bw()
 ```
 
-```{r NMDS_all_autotransform, echo=FALSE, fig.cap="NMDS with all samples after Wisconsin double transformation."}
+## Subsetting samples
 
-otutable_bac.mds <- metaMDS(otutable_bac_samples_t_sorted, 
-                                    distance="bray", k=2, autotransform=TRUE)
-#convert resulting MDS coordinates to a data frame
-otutable_bac.mds.points <- as.data.frame(otutable_bac.mds$points)
-#add site codes and other factors to data frame
-coded.otutable_bac.mds <- cbind(otutable_bac.mds.points, meta_sorted)
+```{r NMDS_PAL0910_and_PAL1011, echo=FALSE, fig.cap="NMDS with only 0-m samples (PAL0910 and PAL1011).", eval=FALSE}
 
-coded.otutable_bac.mds$Month <- as.factor(coded.otutable_bac.mds$Month)
-coded.otutable_bac.mds$Month = ordered(coded.otutable_bac.mds$Month,
-                               levels=c("Oct", "Nov", "Dec", "Jan", "Feb", "Mar"))
-
-ggplot(coded.otutable_bac.mds, aes(x=MDS1, y=MDS2, color=Season)) +
-  geom_point(, size=6) +
-  scale_color_hue() +
-  scale_shape_manual(values=c(15,17,19,18)) +
-  stat_ellipse()+
-  theme_bw()
-
-```
-
-```{r NMDS_all_no_PAL0910, echo=FALSE, fig.cap="NMDS without PAL0910."}
-
-otutable_bac.mds <- metaMDS(otutable_bac_samples_t_sorted[-(1:11),], 
+otutable_bac.mds <- metaMDS(otutable_bac_samples_t_sorted[(1:21),], 
                                     distance="bray", k=2, autotransform=FALSE)
 #convert resulting MDS coordinates to a data frame
 otutable_bac.mds.points <- as.data.frame(otutable_bac.mds$points)
 #add site codes and other factors to data frame
-coded.otutable_bac.mds <- cbind(otutable_bac.mds.points, meta_sorted[-(1:11),])
-
-coded.otutable_bac.mds$Month <- as.factor(coded.otutable_bac.mds$Month)
-coded.otutable_bac.mds$Month = ordered(coded.otutable_bac.mds$Month,
-                               levels=c("Oct", "Nov", "Dec", "Jan", "Feb", "Mar"))
-
-ggplot(coded.otutable_bac.mds, aes(x=MDS1, y=MDS2, color=Month)) +
-  geom_point(, size=6) +
-  scale_color_hue() +
-  scale_shape_manual(values=c(15,17,19,18)) +
-  #stat_ellipse()+
-  theme_bw()
-
-```
-
-```{r NMDS_all_no_PAL0910_noPAL1011, echo=FALSE, fig.cap="NMDS without PAL0910 or PAL1011."}
-
-otutable_bac.mds <- metaMDS(otutable_bac_samples_t_sorted[-(1:21),], 
-                                    distance="bray", k=2, autotransform=FALSE)
-#convert resulting MDS coordinates to a data frame
-otutable_bac.mds.points <- as.data.frame(otutable_bac.mds$points)
-#add site codes and other factors to data frame
-coded.otutable_bac.mds <- cbind(otutable_bac.mds.points, meta_sorted[-(1:21),])
+coded.otutable_bac.mds <- cbind(otutable_bac.mds.points, meta_sorted[(1:21),])
 
 coded.otutable_bac.mds$Month <- as.factor(coded.otutable_bac.mds$Month)
 coded.otutable_bac.mds$Month = ordered(coded.otutable_bac.mds$Month,
@@ -343,6 +328,27 @@ ggplot(coded.otutable_bac.mds, aes(x=MDS1, y=MDS2, color=Month, shape=Season)) +
 
 ```
 
+```{r NMDS_PAL1112_and_PAL1213, echo=FALSE, fig.cap="NMDS with only 10-m samples (PAL1112 and PAL1213).", eval=FALSE}
+
+otutable_bac.mds <- metaMDS(otutable_bac_samples_t_sorted[(1:21),], 
+                                    distance="bray", k=2, autotransform=FALSE)
+#convert resulting MDS coordinates to a data frame
+otutable_bac.mds.points <- as.data.frame(otutable_bac.mds$points)
+#add site codes and other factors to data frame
+coded.otutable_bac.mds <- cbind(otutable_bac.mds.points, meta_sorted[(1:21),])
+
+coded.otutable_bac.mds$Month <- as.factor(coded.otutable_bac.mds$Month)
+coded.otutable_bac.mds$Month = ordered(coded.otutable_bac.mds$Month,
+                               levels=c("Oct", "Nov", "Dec", "Jan", "Feb", "Mar"))
+
+ggplot(coded.otutable_bac.mds, aes(x=MDS1, y=MDS2, color=Month, shape=Season)) +
+  geom_point(, size=6) +
+  scale_color_hue() +
+  scale_shape_manual(values=c(15,17,19,18)) +
+  #stat_ellipse(linetype=2) +
+  theme_bw()
+
+```
 
 ```{r plot_NMDS_daylength_PAL1112_PAL1213, echo=FALSE, fig.cap="NMDS results without PAL0910 or PAL1011, samples color-coded according to day length, i.e. hours between official sunrise and official sunset."}
 
@@ -383,9 +389,7 @@ ggplot(coded.otutable_bac.mds, aes(x=MDS1, y=MDS2, color=Month, shape=Season)) +
 
 ```
 
-##Add ellipses
-
-```{r NMDS_w_ellipses, echo=FALSE, fig.cap="NMDS without PAL0910. Ellipses represent 95% confidence intervals."}
+```{r NMDS_w_ellipses, echo=FALSE, fig.cap="NMDS without PAL0910. Ellipses represent 95% confidence intervals.", eval=FALSE}
 #Get MDS stats
 otutable_bac.mds <- metaMDS(otutable_bac_samples_t_sorted[-(1:11),], 
                             distance="bray", k=2, autotransform=FALSE)
@@ -442,6 +446,7 @@ ggplot(data=NMDS,aes(x,y,colour=Season)) +
   theme_bw() 
 ```
 
+\newpage
 
 #Starting to Incorporate Ancillary Data
 
